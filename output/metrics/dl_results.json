@@ -1,0 +1,38 @@
+{
+  "ResNet18": {
+    "accuracy": 0.9614,
+    "auc": 0.9958,
+    "best_val_loss": 0.1088,
+    "best_epoch": 4,
+    "best_phase": 2,
+    "phase1_epochs": 3,
+    "phase2_epochs": 5,
+    "classification_report": {
+      "REAL": {
+        "precision": 0.9887699968216972,
+        "recall": 0.9333,
+        "f1-score": 0.9602345799681054,
+        "support": 10000.0
+      },
+      "FAKE": {
+        "precision": 0.9368431019789792,
+        "recall": 0.9894,
+        "f1-score": 0.9624045523077671,
+        "support": 10000.0
+      },
+      "accuracy": 0.96135,
+      "macro avg": {
+        "precision": 0.9628065494003382,
+        "recall": 0.9613499999999999,
+        "f1-score": 0.9613195661379362,
+        "support": 20000.0
+      },
+      "weighted avg": {
+        "precision": 0.9628065494003382,
+        "recall": 0.96135,
+        "f1-score": 0.9613195661379362,
+        "support": 20000.0
+      }
+    }
+  }
+}
