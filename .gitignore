@@ -1,4 +1,7 @@
-output/models/
+output/models/resnet18_best.pth
+output/models/resnet50_best.pth
+output/models/rf_model.joblib
+output/models/svm_model.joblib
 CIFAKE/
 CLAUDE.md
 
