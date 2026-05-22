@@ -48,7 +48,7 @@ from config import (
     ML_RESULTS_JSON, EDA_DIR,
     CLASS_NAMES
 )
-from utils import load_images_flat, plot_confusion_matrix, plot_roc_curve
+from utils import load_images_flat, plot_confusion_matrix, plot_roc_curve, _SGDCalibrated
 
 
 # ---------------------------------------------------------------------------
@@ -257,23 +257,6 @@ def main():
 # ---------------------------------------------------------------------------
 
 _RF_PROGRESS_BATCH = 20   # alberi per step nella barra RF
-
-
-class _SGDCalibrated:
-    """SGDClassifier(hinge) + regressione isotonica su decision_function."""
-
-    def __init__(self, sgd, iso):
-        self.sgd_ = sgd
-        self.iso_ = iso
-        self.classes_ = np.array([0, 1])
-
-    def predict_proba(self, X):
-        scores = self.sgd_.decision_function(X)
-        p1 = np.clip(self.iso_.predict(scores), 0.0, 1.0)
-        return np.column_stack([1.0 - p1, p1])
-
-    def predict(self, X):
-        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
 
 def _fit_sgd_with_progress(X, y, C, n_epochs, seed):

@@ -20,11 +20,33 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.isotonic import IsotonicRegression
 
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import transforms
 from sklearn.model_selection import train_test_split as _sklearn_tts
+
+
+# ---------------------------------------------------------------------------
+# Classi condivise ML
+# ---------------------------------------------------------------------------
+
+class _SGDCalibrated:
+    """SGDClassifier(hinge) + regressione isotonica su decision_function."""
+
+    def __init__(self, sgd, iso):
+        self.sgd_ = sgd
+        self.iso_ = iso
+        self.classes_ = np.array([0, 1])
+
+    def predict_proba(self, X):
+        scores = self.sgd_.decision_function(X)
+        p1 = np.clip(self.iso_.predict(scores), 0.0, 1.0)
+        return np.column_stack([1.0 - p1, p1])
+
+    def predict(self, X):
+        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
 
 # ---------------------------------------------------------------------------

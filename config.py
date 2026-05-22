@@ -34,10 +34,10 @@ for _dir in [EDA_DIR, MODELS_DIR, METRICS_DIR, EVALUATION_DIR]:
 RANDOM_SEED = 42
 
 # Frazione del training set da riservare come validation (split in codice)
-VAL_SPLIT_RATIO = 0.1   # 10% → ~9k val su ~100k train → train ~90k / val ~10k
+VAL_SPLIT_RATIO = 0.2   # 10% → ~9k val su ~100k train → train ~90k / val ~10k
 
 # Dimensione immagini per ML classico (flatten)
-IMAGE_SIZE_ML = 32          # px × px → vettore 32*32*3 = 3 072 feature
+IMAGE_SIZE_ML = 32          # pxs × px → vettore 32*32*3 = 3 072 feature
 
 # Dimensione immagini per Deep Learning (ResNet-50 richiede almeno 224)
 IMAGE_SIZE_DL = 128

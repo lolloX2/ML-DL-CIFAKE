@@ -46,7 +46,7 @@ from config import (
 )
 from utils import (
     load_images_flat, get_dataloaders,
-    plot_confusion_matrix, plot_roc_curve
+    plot_confusion_matrix, plot_roc_curve, _SGDCalibrated  # noqa: F401 — needed for joblib/pickle deserialization
 )
 
 

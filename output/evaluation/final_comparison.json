@@ -1,0 +1,14 @@
+{
+  "SVM": {
+    "accuracy": 0.642,
+    "auc": 0.6877
+  },
+  "RandomForest": {
+    "accuracy": 0.8022,
+    "auc": 0.8791
+  },
+  "ResNet18": {
+    "accuracy": 0.9578,
+    "auc": 0.9962
+  }
+}

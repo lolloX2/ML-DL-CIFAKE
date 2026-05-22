@@ -2,44 +2,44 @@
   "model": "ResNet-18",
   "checkpoint": "D:\\machine_learning\\output\\models\\resnet18_best.pth",
   "val": {
-    "loss": 0.1088,
-    "accuracy": 0.961,
-    "auc": 0.996
+    "loss": 0.1186,
+    "accuracy": 0.9575,
+    "auc": 0.9962
   },
   "test": {
-    "loss": 0.1103,
-    "accuracy": 0.9614,
-    "auc": 0.9958,
+    "loss": 0.1131,
+    "accuracy": 0.9578,
+    "auc": 0.9962,
     "classification_report": {
       "REAL": {
-        "precision": 0.9887699968216972,
-        "recall": 0.9333,
-        "f1-score": 0.9602345799681054,
+        "precision": 0.9893116716545532,
+        "recall": 0.9256,
+        "f1-score": 0.9563959495763588,
         "support": 10000.0
       },
       "FAKE": {
-        "precision": 0.9368431019789792,
-        "recall": 0.9894,
-        "f1-score": 0.9624045523077671,
+        "precision": 0.9301014656144306,
+        "recall": 0.99,
+        "f1-score": 0.9591164503003294,
         "support": 10000.0
       },
-      "accuracy": 0.96135,
+      "accuracy": 0.9578,
       "macro avg": {
-        "precision": 0.9628065494003382,
-        "recall": 0.9613499999999999,
-        "f1-score": 0.9613195661379362,
+        "precision": 0.9597065686344919,
+        "recall": 0.9578,
+        "f1-score": 0.9577561999383442,
         "support": 20000.0
       },
       "weighted avg": {
-        "precision": 0.9628065494003382,
-        "recall": 0.96135,
-        "f1-score": 0.9613195661379362,
+        "precision": 0.9597065686344919,
+        "recall": 0.9578,
+        "f1-score": 0.957756199938344,
         "support": 20000.0
       }
     }
   },
   "gap": {
-    "accuracy": 0.0004,
-    "auc": -0.0002
+    "accuracy": 0.0003,
+    "auc": 0.0
   }
 }
