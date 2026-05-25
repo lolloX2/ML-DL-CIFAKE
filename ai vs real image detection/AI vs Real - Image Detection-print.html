@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>AI vs Real — Image Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Quattrocento+Sans:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="deck-stage.js"></script>
+<script type="application/json" id="speaker-notes">
+[
+  "Buongiorno a tutti. Oggi vi presento il mio progetto di tesi: un sistema per rilevare automaticamente se un'immagine è stata generata da un'intelligenza artificiale oppure è una fotografia reale. Ho lavorato sul dataset CIFAKE usando due famiglie di approcci: il Machine Learning classico come baseline, e il Deep Learning con ResNet-18 per la parte principale. Il tutto implementato in PyTorch e Scikit-learn.",
+
+  "Perché questo problema è importante? Negli ultimi anni i modelli generativi come Stable Diffusion, Midjourney e DALL·E hanno reso accessibile a chiunque la creazione di immagini sintetiche di altissima qualità. Questo apre tre fronti critici: il primo è la disinformazione, con immagini false usate in contesti giornalistici o politici; il secondo riguarda l'identità digitale, con deepfake che minacciano i sistemi di autenticazione; il terzo è la proprietà intellettuale, con contenuti artistici replicati senza consenso. Dal 2022, il volume di immagini sintetiche online è cresciuto in modo esponenziale, e distinguerle a occhio nudo è diventato quasi impossibile.",
+
+  "Il dataset scelto è CIFAKE, composto da 100.000 immagini totalmente bilanciate: 50.000 reali provenienti da CIFAR-10 e 50.000 generate con Stable Diffusion. La risoluzione originale è 32×32 pixel, molto bassa, il che rende il problema sfidante. Ho diviso il dataset in 60.000 immagini per il training, 20.000 per la validation e 20.000 per il test. Come si vede nella griglia a destra, a questa risoluzione le immagini FAKE sono visivamente quasi indistinguibili dalle reali — questo è esattamente il tipo di scenario che voglio affrontare.",
+
+  "Il problema è una classificazione binaria: dato un'immagine in input, il modello deve rispondere REAL o FAKE. Ho confrontato due approcci fondamentalmente diversi. Il primo è il ML classico: i pixel vengono appiattiti in un vettore di 3.072 valori, normalizzati, e dati in pasto a un SVM con SGD oppure a un Random Forest. Il secondo è il Deep Learning con ResNet-18 pretrained su ImageNet, che invece sfrutta i filtri convoluzionali per estrarre automaticamente feature spaziali. Il confronto è intenzionale: voglio misurare quanto conta la struttura spaziale nell'informazione discriminativa.",
+
+  "Prima di costruire i modelli, ho analizzato il dataset per capire quali segnali distinguono le immagini reali da quelle AI. Guardando gli istogrammi RGB, il canale rosso mostra un picco più accentuato nelle FAKE attorno ai valori 120–130, mentre il canale blu ha più energia nei toni scuri per le REAL, probabilmente rumore ottico naturale dei sensori fotografici. Ma la scoperta più interessante riguarda la nitidezza: le immagini AI hanno uno blur score medio di 344, contro 215 delle reali. I generatori ottimizzano la qualità percepita producendo bordi artificialmente netti — questa è già una feature discriminativa.",
+
+  "Ancora più interessante è l'analisi nel dominio delle frequenze con la trasformata di Fourier. Lo spettro medio REAL mostra un decadimento radiale naturale: molta energia al centro, poca ai bordi. Lo spettro FAKE appare simile ma con differenze strutturali nelle frequenze medie. La mappa di differenza REAL meno FAKE — quella a destra — mostra in blu le zone dove le FAKE hanno più energia: si tratta di un pattern regolare nelle medie frequenze, una vera e propria impronta digitale del processo generativo. Questa è la firma che i modelli convoluzionali sapranno catturare.",
+
+  "La pipeline baseline con ML classico è semplice: flatten dei pixel, normalizzazione dividendo per 255, subsample a 5.000 campioni per classe per motivi computazionali, e poi training di due classificatori. L'SVM usa una loss hinge con SGD per 15 epoche — trattamento lineare dello spazio feature. Il Random Forest usa 200 alberi decisionali. Il punto critico di questo approccio è che ogni pixel è trattato come feature indipendente: il classificatore non sa che il pixel in posizione (3, 5) è vicino a quello in (3, 6). Tutta la struttura spaziale viene persa nel momento del flatten.",
+
+  "Ecco i risultati del ML classico. L'SVM con SGD arriva al 64.2% di accuracy, con AUC-ROC di 0.69 e F1 di 0.64 — appena sopra il caso random al 50%. Addestrato in meno di un secondo, ma i risultati sono deludenti: senza struttura spaziale, i pixel grezzi non bastano. Il Random Forest performa molto meglio: 80.2% di accuracy, AUC 0.88, in soli 6 secondi. Questo è sorprendente — 200 alberi riescono a isolare combinazioni di pixel che co-occorrono solo nelle immagini AI. Tuttavia, siamo ancora lontani da una performance accettabile per un sistema di rilevamento reale.",
+
+  "Passiamo al cuore del progetto: ResNet-18 con transfer learning bifase. L'architettura di base è pretrained su ImageNet. Ho congelato i Layer 1 e 2 in entrambe le fasi — mantengono i filtri di basso livello per bordi e texture generici. Nella Fase 1, per 3 epoche con learning rate 1e-3, addestro solo il classificatore FC: il modello impara rapidamente a usare le feature già estratte dal backbone. Nella Fase 2, per 5 epoche con learning rate ridotto a 1e-4, sblocco Layer 3 e Layer 4 per il fine-tuning: questi layer si adattano al dominio specifico del rilevamento AI. Il learning rate basso è fondamentale per evitare il catastrophic forgetting dei pesi ImageNet.",
+
+  "Le curve di apprendimento confermano la strategia bifase. Nelle prime 3 epoche, il modello sfrutta i pesi congelati: la loss scende da 0.37 a 0.29 ma poi si stabilizza all'83% — siamo al limite di ciò che il solo FC head può imparare. Alla Fase 2, sblocco di Layer 3 e Layer 4, si vede un salto netto: la validation loss crolla fino a 0.1186 alla migliore epoch, corrispondente alla epoch 5 dell'intero training. Il gap tra training e validation è minimo in tutta la Fase 2, segno di ottima generalizzazione. Il best checkpoint viene salvato automaticamente.",
+
+  "I risultati di ResNet-18 sono eccellenti. Test accuracy al 95.78%, AUC-ROC di 0.9962 — praticamente il classificatore perfetto. L'F1 score è 0.9578. Due metriche mi sembrano particolarmente significative: il gap tra validation e test è solo 0.03% — da 95.75% a 95.78% — segno che non c'è overfitting. E soprattutto il FAKE recall: 99.00%. Su 10.000 immagini FAKE nel test set, solo 100 vengono classificate erroneamente come reali. In un sistema di rilevamento reale, i falsi negativi — immagini AI che passano come autentiche — sono il caso peggiore, e qui li abbiamo minimizzati al massimo.",
+
+  "Il confronto tra i tre modelli è netto. SVM a 64.2%, Random Forest a 80.2%, ResNet-18 a 95.78%. Guardando la curva ROC a sinistra, la differenza è evidente: SVM e Random Forest si separano visibilmente dalla diagonale del caso random, ma ResNet-18 abbraccia quasi il corner in alto a sinistra. Il bar chart a destra confronta accuracy, AUC e F1 side by side. Il costo è il tempo di training: 0.8 secondi per SVM, 6 secondi per Random Forest, circa 12 minuti per ResNet-18 su RTX 4060 Ti. Ma 12 minuti è un prezzo molto basso per quasi 16 punti percentuali di accuracy in più.",
+
+  "In conclusione, quattro punti chiave. Primo: il flattening dei pixel è il collo di bottiglia del ML classico — SVM a 64% lo dimostra chiaramente. Secondo: Random Forest a 80% è sorprendente, gli alberi riescono a catturare segnali parziali anche senza struttura spaziale. Terzo: ResNet-18 domina con 95.78% — i filtri convoluzionali apprendono le texture, i bordi e i pattern periodici che sono esattamente le tracce lasciate dai generatori AI. Quarto: il transfer learning bifase è efficace e rapido — 8 epoche su GPU consumer in 12 minuti. Il risultato più importante rimane il FAKE recall del 99%, che rende il sistema affidabile per applicazioni reali dove i falsi negativi sono il rischio maggiore."
+]
+</script>
+<style>
+:root {
+  --type-hero: 116px;
+  --type-title: 68px;
+  --type-subtitle: 46px;
+  --type-body: 34px;
+  --type-small: 26px;
+  --type-micro: 24px;
+
+  --pad-top: 86px;
+  --pad-bot: 78px;
+  --pad-x: 108px;
+  --gap-title: 46px;
+  --gap-item: 26px;
+
+  --c-dark: #0d1117;
+  --c-mid: #0e1828;
+  --c-light: #f5f7fa;
+  --c-white: #ffffff;
+  --c-text-light: #edf0f5;
+  --c-text-dark: #0d1117;
+  --c-muted-dark: #7d8698;
+  --c-muted-light: #6b7280;
+  --c-border-light: #e1e4eb;
+  --c-border-dark: #1e2530;
+
+  --accent:    oklch(62% 0.20 245);
+  --accent-2:  oklch(62% 0.20 170);
+  --accent-3:  oklch(65% 0.18 55);
+
+  --accent-bg:   color-mix(in oklch, var(--accent)   12%, transparent);
+  --accent-2-bg: color-mix(in oklch, var(--accent-2) 12%, transparent);
+  --accent-3-bg: color-mix(in oklch, var(--accent-3) 12%, transparent);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #111; }
+
+section {
+  font-family: 'Quattrocento Sans', sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+section.dark  { background: var(--c-dark); color: var(--c-text-light); }
+section.mid   { background: var(--c-mid);  color: var(--c-text-light); }
+section.light { background: var(--c-light); color: var(--c-text-dark); }
+
+.inn {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--pad-top) var(--pad-x) var(--pad-bot);
+}
+
+/* Label + Title */
+.lbl {
+  font-size: var(--type-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.ttl {
+  font-size: var(--type-title);
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: var(--gap-title);
+}
+
+/* Body flex row */
+.body {
+  flex: 1;
+  display: flex;
+  gap: 52px;
+  min-height: 0;
+}
+
+/* Accent bar */
+.aline {
+  width: 52px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  margin-bottom: 26px;
+}
+.aline-2 { background: var(--accent-2); }
+.aline-3 { background: var(--accent-3); }
+
+/* Hero numbers */
+.hero      { font-size: var(--type-hero); font-weight: 700; line-height: 1; color: var(--accent); }
+.hero-2    { color: var(--accent-2); }
+.hero-3    { color: var(--accent-3); }
+
+/* Metric column */
+.mcol { display: flex; flex-direction: column; gap: 6px; }
+.mval { font-size: 78px; font-weight: 700; line-height: 1; color: var(--accent); }
+.mval-2 { color: var(--accent-2); }
+.mval-3 { color: var(--accent-3); }
+.mlbl { font-size: var(--type-small); color: var(--c-muted-light); }
+section.dark .mlbl, section.mid .mlbl { color: var(--c-muted-dark); }
+
+/* Card */
+.card {
+  border-radius: 14px;
+  padding: 36px;
+}
+section.light .card {
+  background: var(--c-white);
+  border: 1px solid var(--c-border-light);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+}
+section.dark .card, section.mid .card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--c-border-dark);
+}
+
+/* Tags */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 18px;
+  border-radius: 100px;
+  font-size: 24px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+.tag-blue { background: var(--accent-bg);   color: var(--accent); }
+.tag-teal { background: var(--accent-2-bg); color: var(--accent-2); }
+.tag-warm { background: var(--accent-3-bg); color: var(--accent-3); }
+.tag-dim  { background: rgba(255,255,255,0.07); color: var(--c-muted-dark); }
+
+/* Table */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th {
+  font-size: var(--type-small);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-muted-light);
+  padding: 14px 22px;
+  text-align: left;
+  border-bottom: 2px solid var(--c-border-light);
+}
+.tbl td {
+  font-size: var(--type-body);
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--c-border-light);
+  vertical-align: middle;
+}
+.tbl tr:last-child td { border-bottom: none; }
+.best { color: var(--accent-2); font-weight: 700; }
+
+/* Pipeline */
+.pipe { display: flex; align-items: stretch; gap: 0; }
+.pstep { flex: 1; display: flex; flex-direction: column; }
+.pbox {
+  background: var(--accent-bg);
+  border: 2px solid color-mix(in oklch, var(--accent) 32%, transparent);
+  border-radius: 14px;
+  padding: 20px 28px;
+  text-align: center;
+  flex: 1;
+}
+.pnum  { font-size: 24px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.05em; }
+.pname { font-size: var(--type-body); font-weight: 700; margin-top: 8px; }
+.psub  { font-size: var(--type-small); color: var(--c-muted-light); margin-top: 6px; }
+.parr  { display: flex; align-items: center; padding: 0 14px 20px; color: var(--c-muted-light); font-size: 30px; flex-shrink: 0; }
+
+/* Architecture blocks */
+.arch { border-radius: 12px; padding: 16px 24px; text-align: center; font-size: var(--type-small); font-weight: 700; }
+.arch-frozen { background: rgba(107,114,128,0.12); border: 2px solid rgba(107,114,128,0.28); color: var(--c-muted-dark); }
+.arch-train  { background: var(--accent-bg);   border: 2px solid color-mix(in oklch, var(--accent)   38%, transparent); color: var(--accent); }
+.arch-head   { background: var(--accent-2-bg); border: 2px solid color-mix(in oklch, var(--accent-2) 38%, transparent); color: var(--accent-2); }
+.arch-out    { background: var(--accent-3-bg); border: 2px solid color-mix(in oklch, var(--accent-3) 38%, transparent); color: var(--accent-3); }
+.arch-arr    { font-size: 26px; color: var(--c-muted-dark); text-align: center; margin: 5px 0; }
+
+/* Conclusion items */
+.conc { display: flex; gap: 22px; align-items: flex-start; }
+.conc-num { font-size: var(--type-subtitle); font-weight: 700; color: var(--accent); line-height: 1; flex-shrink: 0; width: 56px; }
+.conc-title { font-size: var(--type-body); font-weight: 700; margin-bottom: 8px; }
+.conc-text { font-size: var(--type-small); color: var(--c-muted-dark); line-height: 1.55; }
+
+/* Full-fit image */
+.full-img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 6px; }
+
+/* Vertical divider */
+.vdiv { width: 1px; flex-shrink: 0; background: var(--c-border-light); }
+section.dark .vdiv, section.mid .vdiv { background: var(--c-border-dark); }
+
+/* Mono */
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* BG watermark */
+.wm {
+  position: absolute;
+  font-size: 380px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.03);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  font-family: 'Quattrocento Sans', sans-serif;
+}
+</style>
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 01 — TITLE
+═══════════════════════════════════════════════════ -->
+<section class="dark" data-label="01 Title">
+  
+  <div class="inn" style="justify-content:center;">
+    <div style="max-width:1000px; display:flex; flex-direction:column; gap:28px;">
+      <div style="display:flex; gap:14px; flex-wrap:wrap;">
+        <span class="tag tag-dim">CIFAKE Dataset</span>
+        <span class="tag tag-dim">PyTorch + Scikit-learn</span>
+        <span class="tag tag-dim">ResNet-18</span>
+      </div>
+      <h1 style="font-size:100px; font-weight:700; line-height:1.05;">
+        AI vs Real<br>
+        <span style="color:var(--accent);">Image Detection</span>
+      </h1>
+      <p style="font-size:var(--type-body); color:var(--c-muted-dark); max-width:740px; line-height:1.7;">
+        Confronto tra approcci di Machine Learning classico e Deep Learning
+        per il rilevamento di immagini generate da intelligenza artificiale
+      </p>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px;">
+        <span class="tag tag-warm">ML Classico</span>
+        <span class="tag tag-blue">Transfer Learning</span>
+        <span class="tag tag-teal">ResNet-18 Fine-tuning</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 02 — PERCHÉ RILEVARE IMMAGINI AI?
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="02 Motivazione">
+  <div class="inn">
+    <div class="lbl">Contesto</div>
+    <h2 class="ttl">Perché rilevare immagini AI?</h2>
+
+    <div class="body" style="align-items:stretch; margin-bottom:36px;">
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:18px;">
+        <span class="tag tag-warm" style="align-self:flex-start;">Disinformazione</span>
+        <div class="aline aline-3"></div>
+        <p style="font-size:var(--type-body); line-height:1.6;">
+          Le immagini generate da AI vengono usate per creare notizie false,
+          manipolare l'opinione pubblica e falsificare prove visive.
+        </p>
+      </div>
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:18px;">
+        <span class="tag tag-blue" style="align-self:flex-start;">Identità digitale</span>
+        <div class="aline"></div>
+        <p style="font-size:var(--type-body); line-height:1.6;">
+          Deepfake e volti sintetici minacciano sistemi di autenticazione,
+          reputazioni personali e fiducia nelle comunicazioni digitali.
+        </p>
+      </div>
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:18px;">
+        <span class="tag tag-teal" style="align-self:flex-start;">Proprietà intellettuale</span>
+        <div class="aline aline-2"></div>
+        <p style="font-size:var(--type-body); line-height:1.6;">
+          Contenuti artistici e fotografici vengono replicati da modelli
+          generativi senza consenso, violando i diritti d'autore.
+        </p>
+      </div>
+
+    </div>
+
+    <div style="padding:22px 34px; background:var(--accent-bg); border-radius:10px; border-left:4px solid var(--accent);">
+      <p style="font-size:var(--type-small); line-height:1.55;">
+        <strong>Il volume di immagini sintetiche online è cresciuto esponenzialmente dal 2022</strong>
+        — i modelli generativi sono oggi accessibili a chiunque.
+      </p>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 03 — DATASET: CIFAKE
+═══════════════════════════════════════════════════ -->
+<section class="mid" data-label="03 Dataset: CIFAKE">
+  <div class="inn" style="flex-direction:row; gap:80px;">
+
+    <!-- Left: stats -->
+    <div style="flex:0 0 640px; display:flex; flex-direction:column; justify-content:center; gap:52px;">
+      <div>
+        <div class="lbl">Dataset</div>
+        <h2 class="ttl" style="margin-bottom:0;">Il dataset: CIFAKE</h2>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:40px 56px;">
+        <div>
+          <div class="hero">100k</div>
+          <div style="font-size:var(--type-small); color:var(--c-muted-dark); margin-top:8px;">immagini totali</div>
+        </div>
+        <div>
+          <div class="hero hero-2">50/50</div>
+          <div style="font-size:var(--type-small); color:var(--c-muted-dark); margin-top:8px;">bilanciamento classi</div>
+        </div>
+        <div>
+          <div class="hero hero-3">32×32</div>
+          <div style="font-size:var(--type-small); color:var(--c-muted-dark); margin-top:8px;">risoluzione originale (px)</div>
+        </div>
+        <div>
+          <div class="hero">60/20</div>
+          <div style="font-size:var(--type-small); color:var(--c-muted-dark); margin-top:8px;">k train / val+test split</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: image grid -->
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; gap:18px;">
+      <div style="background:rgba(255,255,255,0.05); border-radius:14px; padding:22px; border:1px solid var(--c-border-dark); display:flex; flex-direction:column; gap:16px;">
+        <div style="font-size:var(--type-small); color:var(--c-muted-dark); text-align:center;">
+          Esempi — REAL (riga 1) &nbsp;·&nbsp; FAKE / Stable Diffusion (riga 2)
+        </div>
+        <img src="output/eda/03_image_grid.png" alt="Image grid REAL vs FAKE"
+          style="width:100%; border-radius:6px; image-rendering:pixelated;">
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 04 — DESCRIZIONE DEL PROBLEMA
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="04 Descrizione del problema">
+  <div class="inn">
+    <div class="lbl">Pipeline</div>
+    <h2 class="ttl">Descrizione del problema</h2>
+
+    <!-- Pipeline flow -->
+    <div class="pipe" style="margin-bottom:44px;">
+      <div class="pstep">
+        <div class="pbox">
+          <div class="pnum">INPUT</div>
+          <div class="pname">Immagine</div>
+          <div class="psub mono">32×32 px (RGB)</div>
+        </div>
+      </div>
+      <div class="parr">→</div>
+      <div class="pstep">
+        <div class="pbox">
+          <div class="pnum">MODELLO</div>
+          <div class="pname">Classificatore</div>
+          <div class="psub">ML classico / ResNet-18</div>
+        </div>
+      </div>
+      <div class="parr">→</div>
+      <div class="pstep">
+        <div class="pbox" style="background:var(--accent-2-bg); border-color:color-mix(in oklch, var(--accent-2) 36%, transparent);">
+          <div class="pnum" style="color:var(--accent-2);">OUTPUT</div>
+          <div class="pname">Classificazione binaria</div>
+          <div class="psub" style="color:var(--accent-2); font-weight:700;">REAL ✓ &nbsp;/&nbsp; FAKE ✗</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Two approaches -->
+    <div class="body" style="align-items:stretch;">
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:14px;">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:6px;">
+          <span class="tag tag-warm">ML Classico</span>
+          <span style="font-size:var(--type-small); color:var(--c-muted-light);">baseline</span>
+        </div>
+        <div style="font-size:var(--type-small); display:flex; flex-direction:column; gap:9px; color:var(--c-text-dark);">
+          <div>▸ Pixel flatten <span class="mono">32×32×3 = 3.072 feature</span></div>
+          <div>▸ SVM (SGD hinge, C = 1.0) &nbsp;·&nbsp; 15 epoche</div>
+          <div>▸ Random Forest 200 alberi</div>
+          <div>▸ Subsample: <strong>5.000 campioni / classe</strong></div>
+          <div>▸ Nessuna feature engineering</div>
+        </div>
+        <div style="margin-top:auto; padding:13px 18px; background:var(--accent-3-bg); border-radius:8px; font-size:var(--type-micro); color:var(--accent-3);">
+          ⚠ Struttura spaziale ignorata — ogni pixel è feature indipendente
+        </div>
+      </div>
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:14px;">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:6px;">
+          <span class="tag tag-blue">Deep Learning</span>
+          <span style="font-size:var(--type-small); color:var(--c-muted-light);">ResNet-18</span>
+        </div>
+        <div style="font-size:var(--type-small); display:flex; flex-direction:column; gap:9px; color:var(--c-text-dark);">
+          <div>▸ ResNet-18 pretrained su ImageNet</div>
+          <div>▸ Transfer learning + fine-tuning bifase</div>
+          <div>▸ Feature estratte automaticamente</div>
+          <div>▸ Ridimensionamento a <span class="mono">128×128</span>, batch 64</div>
+          <div>▸ Dropout = 0.3 &nbsp;·&nbsp; Weight decay = 1e-4</div>
+        </div>
+        <div style="margin-top:auto; padding:13px 18px; background:var(--accent-bg); border-radius:8px; font-size:var(--type-micro); color:var(--accent);">
+          ✓ I filtri convoluzionali apprendono texture, bordi e pattern spaziali
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 05 — EDA: PIXEL E NITIDEZZA
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="05 EDA — Pixel e nitidezza">
+  <div class="inn">
+    <div class="lbl">Analisi esplorativa</div>
+    <h2 class="ttl">Pixel e nitidezza</h2>
+
+    <div class="body" style="align-items:stretch;">
+
+      <!-- Left: RGB histograms -->
+      <div style="flex:3; display:flex; flex-direction:column; gap:14px; min-height:0;">
+        <div class="card" style="flex:1; padding:16px; overflow:hidden; min-height:0;">
+          <img src="output/eda/02_rgb_histograms.png" alt="RGB Histograms" class="full-img">
+        </div>
+        <div style="font-size:var(--type-micro); color:var(--c-muted-light); line-height:1.5;">
+          <strong>Canale R:</strong> FAKE con picco più accentuato attorno a 120–130
+          &nbsp;·&nbsp;
+          <strong>Canale B:</strong> REAL con più energia nei toni scuri (0–40) — rumore ottico naturale
+          &nbsp;·&nbsp;
+          <strong>Canale G:</strong> distribuzione quasi identica — meno discriminativo
+        </div>
+      </div>
+
+      <!-- Right: blur score -->
+      <div style="flex:2; display:flex; flex-direction:column; gap:14px; min-height:0;">
+        <div class="card" style="flex:1; padding:16px; overflow:hidden; min-height:0;">
+          <img src="output/eda/04_blur_score_boxplot.png" alt="Blur Score" class="full-img">
+        </div>
+        <div style="font-size:var(--type-micro); color:var(--c-muted-light); line-height:1.5;">
+          Le immagini AI risultano <strong>più nitide</strong>: i generatori ottimizzano la qualità
+          percepita producendo bordi artificialmente netti.
+          <strong>REAL media 214.7</strong> vs <strong>FAKE media 344.2</strong>.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 06 — EDA: SPETTRO FFT
+═══════════════════════════════════════════════════ -->
+<section class="dark" data-label="06 EDA — Spettro FFT">
+  <div class="inn">
+    <div class="lbl">Analisi esplorativa</div>
+    <h2 class="ttl" style="margin-bottom:28px;">Spettro di frequenza (FFT)</h2>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:26px; min-height:0;">
+      <div style="flex:1; background:rgba(255,255,255,0.04); border-radius:12px; padding:14px; border:1px solid var(--c-border-dark); overflow:hidden; min-height:0;">
+        <img src="output/eda/05_fft_spectrum.png" alt="FFT Spectrum" class="full-img">
+      </div>
+      <div style="display:flex; gap:48px;">
+        <p style="flex:1; font-size:var(--type-small); line-height:1.55;">
+          <strong>Spettro REAL:</strong> energia distribuita naturalmente, decadimento radiale graduale dal centro verso i bordi.
+        </p>
+        <p style="flex:1; font-size:var(--type-small); line-height:1.55;">
+          <strong>Spettro FAKE:</strong> pattern simile ma con differenze strutturali nelle frequenze medie — traccia del processo generativo.
+        </p>
+        <p style="flex:1; font-size:var(--type-small); line-height:1.55; color:var(--accent);">
+          <strong>Differenza (REAL−FAKE):</strong> le zone blu (FAKE > REAL) rivelano eccesso di energia nelle medie frequenze — impronta del modello AI.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 07 — ML CLASSICO: APPROCCIO
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="07 ML Classico — Approccio">
+  <div class="inn">
+    <div class="lbl">ML Classico</div>
+    <h2 class="ttl">Pipeline baseline</h2>
+
+    <div class="pipe" style="margin-bottom:40px;">
+      <div class="pstep">
+        <div class="pbox">
+          <div class="pnum">01</div>
+          <div class="pname">Flatten</div>
+          <div class="psub mono">32×32×3 → 3.072</div>
+        </div>
+      </div>
+      <div class="parr">→</div>
+      <div class="pstep">
+        <div class="pbox">
+          <div class="pnum">02</div>
+          <div class="pname">Normalize</div>
+          <div class="psub mono">Pixel /255 → [0,1]</div>
+        </div>
+      </div>
+      <div class="parr">→</div>
+      <div class="pstep">
+        <div class="pbox">
+          <div class="pnum">03</div>
+          <div class="pname">Subsample</div>
+          <div class="psub">5.000 campioni/classe</div>
+        </div>
+      </div>
+      <div class="parr">→</div>
+      <div class="pstep">
+        <div class="pbox" style="background:var(--accent-3-bg); border-color:color-mix(in oklch, var(--accent-3) 36%, transparent);">
+          <div class="pnum" style="color:var(--accent-3);">04</div>
+          <div class="pname">Train</div>
+          <div class="psub">SVM · Random Forest</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="body" style="align-items:stretch;">
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:12px;">
+        <span class="tag tag-warm" style="align-self:flex-start;">SVM (SGD hinge)</span>
+        <div style="font-size:var(--type-small); display:flex; flex-direction:column; gap:8px;">
+          <div>▸ Loss: hinge &nbsp;·&nbsp; C = 1.0</div>
+          <div>▸ 15 epoche SGD</div>
+          <div>▸ Trattamento lineare dello spazio feature</div>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:12px;">
+        <span class="tag tag-blue" style="align-self:flex-start;">Random Forest</span>
+        <div style="font-size:var(--type-small); display:flex; flex-direction:column; gap:8px;">
+          <div>▸ 200 alberi decisionali</div>
+          <div>▸ Isolamento combinazioni di pixel</div>
+          <div>▸ Feature importance analizzabile</div>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1; display:flex; flex-direction:column; gap:12px; border-color:color-mix(in oklch, var(--accent-3) 28%, transparent); background:color-mix(in oklch, var(--accent-3) 5%, var(--c-white));">
+        <div style="font-size:var(--type-small); font-weight:700; color:var(--accent-3);">⚠ Limitazione attesa</div>
+        <p style="font-size:var(--type-small); line-height:1.55;">
+          Senza struttura spaziale, i pixel grezzi offrono informazioni ridotte al classificatore — ogni pixel è trattato come feature indipendente, ignorando le relazioni locali.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 08 — ML CLASSICO: RISULTATI
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="08 ML Classico — Risultati">
+  <div class="inn">
+    <div class="lbl">Risultati</div>
+    <h2 class="ttl">ML Classico</h2>
+
+    <div class="body" style="align-items:stretch;">
+
+      <!-- SVM -->
+      <div style="flex:1; display:flex; flex-direction:column; gap:22px; min-height:0;">
+        <div style="display:flex; align-items:center; gap:18px;">
+          <span class="tag tag-warm"></span>
+          <span style="font-size:var(--type-micro); color:var(--c-muted-light);">0.8 s · 8k campioni train</span>
+        </div>
+        <div style="display:flex; gap:44px;">
+          <div class="mcol">
+            <div class="mval mval-3">64.2%</div>
+            <div class="mlbl">Accuracy</div>
+          </div>
+          <div class="mcol">
+            <div class="mval mval-3" style="font-size:58px;">0.6877</div>
+            <div class="mlbl">AUC-ROC</div>
+          </div>
+          <div class="mcol">
+            <div class="mval mval-3" style="font-size:58px;">0.641</div>
+            <div class="mlbl">F1-score</div>
+          </div>
+        </div>
+        <div style="flex:1; background:var(--c-white); border-radius:10px; padding:10px; border:1px solid var(--c-border-light); overflow:hidden; min-height:0;">
+          <img src="output/evaluation/svm_confusion_matrix.png" alt="SVM Confusion Matrix" class="full-img">
+        </div>
+      </div>
+
+      <div class="vdiv"></div>
+
+      <!-- Random Forest -->
+      <div style="flex:1; display:flex; flex-direction:column; gap:22px; min-height:0;">
+        <div style="display:flex; align-items:center; gap:18px;">
+          <span class="tag tag-blue">Random Forest</span>
+          <span style="font-size:var(--type-micro); color:var(--c-muted-light);">6.4 s · 200 alberi</span>
+        </div>
+        <div style="display:flex; gap:44px;">
+          <div class="mcol">
+            <div class="mval">80.2%</div>
+            <div class="mlbl">Accuracy</div>
+          </div>
+          <div class="mcol">
+            <div class="mval" style="font-size:58px;">0.8791</div>
+            <div class="mlbl">AUC-ROC</div>
+          </div>
+          <div class="mcol">
+            <div class="mval" style="font-size:58px;">0.802</div>
+            <div class="mlbl">F1-score</div>
+          </div>
+        </div>
+        <div style="flex:1; background:var(--c-white); border-radius:10px; padding:10px; border:1px solid var(--c-border-light); overflow:hidden; min-height:0;">
+          <img src="output/evaluation/randomforest_confusion_matrix.png" alt="RF Confusion Matrix" class="full-img">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 09 — DEEP LEARNING: ARCHITETTURA
+═══════════════════════════════════════════════════ -->
+<section class="mid" data-label="09 Deep Learning — Architettura">
+  <div class="inn">
+    <div class="lbl">Deep Learning</div>
+    <h2 class="ttl">ResNet-18 — Transfer Learning bifase</h2>
+
+    <div class="body" style="gap:80px; align-items:center;">
+
+      <!-- Architecture diagram (left) -->
+      <div style="flex:0 0 480px; display:flex; flex-direction:column; gap:6px;">
+        <div class="arch arch-frozen">
+          <div style="font-size:24px; letter-spacing:0.08em; margin-bottom:5px;">IMAGENET PRE-TRAINED</div>
+          <div class="mono" style="font-size:var(--type-small);">ResNet-18 backbone</div>
+        </div>
+        <div class="arch-arr">↓</div>
+        <div class="arch arch-frozen">
+          <div></div>
+          <div style="font-size:24px; margin-top:5px;">🔒 congelati — entrambe le fasi</div>
+        </div>
+        <div class="arch-arr">↓</div>
+        <div class="arch arch-train">
+          <div>Layer 4</div>
+          <div class="mono" style="font-size:24px; margin-top:5px;">🔓 sbloccato in Fase 2</div>
+        </div>
+        <div class="arch-arr">↓</div>
+        <div class="arch arch-head">
+          <div class="mono">FC Linear(512 → 2)</div>
+          <div class="mono" style="font-size:24px; margin-top:5px;">Dropout(0.3) — addestrato in Fase 1+2</div>
+        </div>
+        <div class="arch-arr">↓</div>
+        <div class="arch arch-out">
+          <div>Softmax → REAL / FAKE</div>
+        </div>
+      </div>
+
+      <!-- Phase details (right) -->
+      <div style="flex:1; display:flex; flex-direction:column; gap:24px;">
+
+        <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <span class="tag tag-teal">Fase 1</span>
+            <span style="font-size:var(--type-small); color:var(--c-muted-dark);">3 epoche — lr = 1e-3</span>
+          </div>
+          <p style="font-size:var(--type-small); line-height:1.55;">
+            Solo il <strong>classificatore FC</strong> è addestrabile. Layer 1–4 restano congelati con pesi ImageNet. Il modello impara rapidamente a separare le feature estratte.
+          </p>
+        </div>
+
+        <div class="card" style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; align-items:center; gap:14px;">
+            <span class="tag tag-blue">Fase 2</span>
+            <span style="font-size:var(--type-small); color:var(--c-muted-dark);">5 epoche — lr = 1e-4</span>
+          </div>
+          <p style="font-size:var(--type-small); line-height:1.55;">Si sblocca Layer 4: fine-tuning sul dominio AI a livello di feature di alto livello. Learning rate ridotto per evitare catastrophic forgetting.</p>
+        </div>
+
+        <div class="card" style="display:flex; flex-direction:column; gap:10px;">
+          <div style="font-size:var(--type-micro); font-weight:700; color:var(--c-muted-dark); text-transform:uppercase; letter-spacing:0.08em;">Iperparametri</div>
+          <div class="mono" style="font-size:var(--type-small); display:flex; flex-direction:column; gap:7px; color:var(--c-text-light);">
+            <div><span style="color:var(--accent);">batch_size</span> = 64 &nbsp;·&nbsp; <span style="color:var(--accent);">img_size</span> = 128×128</div>
+            <div><span style="color:var(--accent-2);">dropout</span> = 0.3 &nbsp;·&nbsp; <span style="color:var(--accent-2);">weight_decay</span> = 1e-4</div>
+            <div><span style="color:var(--accent-3);">GPU</span>: RTX 4060 Ti &nbsp;·&nbsp; <span style="color:var(--accent-3);">~12 min</span> totali (8 epoche)</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 10 — TRAINING: CURVE DI APPRENDIMENTO
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="10 Training ResNet-18">
+  <div class="inn">
+    <div class="lbl">Deep Learning</div>
+    <h2 class="ttl" style="margin-bottom:26px;">Curve di apprendimento — Fase 1+2 (8 epoche totali)</h2>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:22px; min-height:0;">
+      <div style="flex:1; background:var(--c-white); border-radius:10px; padding:14px; border:1px solid var(--c-border-light); overflow:hidden; min-height:0;">
+        <img src="output/eda/dl_training_curves_full.png" alt="Training Curves" class="full-img">
+      </div>
+      <div style="display:flex; gap:52px;">
+        <p style="flex:1; font-size:var(--type-small); line-height:1.55;">
+          <strong>Fase 1 (epoch 1–3) — FC head:</strong> loss scende da 0.37 a 0.29.
+          Accuracy stabile all'83%. Il modello sfrutta i pesi ImageNet congelati.
+        </p>
+        <p style="flex:1; font-size:var(--type-small); line-height:1.55;">
+          <strong></strong> salto di performance significativo. Val loss → <strong>0.1186</strong> alla migliore epoch. Gap train/val minimo.
+        </p>
+        <p style="flex:1; font-size:var(--type-small); line-height:1.55; color:var(--accent);">
+          <strong>Best checkpoint:</strong> epoch 5 (fase 2) &nbsp;·&nbsp; val loss 0.1186 &nbsp;·&nbsp;
+          val acc 95.75% &nbsp;·&nbsp; test acc <strong>95.78%</strong>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 11 — DEEP LEARNING: RISULTATI
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="11 Risultati ResNet-18">
+  <div class="inn">
+    <div class="lbl">Risultati</div>
+    <h2 class="ttl">ResNet-18</h2>
+
+    <div class="body" style="align-items:stretch;">
+
+      <!-- Left: key metrics -->
+      <div style="flex:0 0 540px; display:flex; flex-direction:column; justify-content:space-between; gap:24px;">
+        <div style="display:flex; flex-direction:column; gap:22px;">
+          <div class="mcol">
+            <div class="mval mval-2" style="font-size:var(--type-hero);">95.78%</div>
+            <div class="mlbl">Test Accuracy</div>
+          </div>
+          <div style="display:flex; gap:40px;">
+            <div class="mcol">
+              <div class="mval mval-2" style="font-size:58px;">0.9962</div>
+              <div class="mlbl">AUC-ROC</div>
+            </div>
+            <div class="mcol">
+              <div class="mval mval-2" style="font-size:58px;">0.9578</div>
+              <div class="mlbl">F1-score</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div class="card" style="padding:18px 24px;">
+            <div class="mlbl">Val → Test gap</div>
+            <div style="font-size:52px; font-weight:700; color:var(--accent-2); line-height:1.1; margin:4px 0;">0.03%</div>
+            <div style="font-size:var(--type-micro); color:var(--c-muted-light);">95.75% → 95.78% — nessun overfitting</div>
+          </div>
+          <div style="display:flex; gap:14px;">
+            <div class="card" style="flex:1; padding:14px 18px;">
+              <div class="mlbl">REAL recall</div>
+              <div style="font-size:38px; font-weight:700; margin-top:4px;">92.56%</div>
+            </div>
+            <div class="card" style="flex:1; padding:14px 18px;">
+              <div class="mlbl">FAKE recall</div>
+              <div style="font-size:38px; font-weight:700; color:var(--accent-2); margin-top:4px;">99.00%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: confusion matrix -->
+      <div style="flex:1; min-height:0;">
+        <div class="card" style="height:100%; padding:14px; overflow:hidden; min-height:0;">
+          <img src="output/evaluation/resnet18_confusion_matrix.png" alt="ResNet18 Confusion Matrix" class="full-img">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 12 — CONFRONTO TRA APPROCCI
+═══════════════════════════════════════════════════ -->
+<section class="light" data-label="12 Confronto tra approcci">
+  <div class="inn">
+    <div class="lbl">Confronto</div>
+    <h2 class="ttl">Tutti i modelli — test set (20.000 immagini)</h2>
+
+    <div class="body" style="align-items:stretch;">
+
+      <!-- Left: table + ROC -->
+      <div style="flex:1; display:flex; flex-direction:column; gap:24px; min-height:0;">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Modello</th>
+              <th>Accuracy</th>
+              <th>AUC-ROC</th>
+              <th>F1</th>
+              <th>Train time</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="tag tag-warm"></span></td>
+              <td>64.2%</td>
+              <td>0.6877</td>
+              <td>0.641</td>
+              <td class="mono">0.8 s</td>
+            </tr>
+            <tr>
+              <td><span class="tag tag-blue">Random Forest</span></td>
+              <td>80.2%</td>
+              <td>0.8791</td>
+              <td>0.802</td>
+              <td class="mono">6.4 s</td>
+            </tr>
+            <tr>
+              <td><span class="tag tag-teal">ResNet-18</span></td>
+              <td class="best">95.78%</td>
+              <td class="best">0.9962</td>
+              <td class="best">0.9578</td>
+              <td class="mono">~12 min</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="flex:1; background:var(--c-white); border-radius:10px; padding:12px; border:1px solid var(--c-border-light); overflow:hidden; min-height:0;">
+          <img src="output/evaluation/all_models_roc_comparison.png" alt="ROC Comparison" class="full-img">
+        </div>
+      </div>
+
+      <div class="vdiv"></div>
+
+      <!-- Right: bar chart -->
+      <div style="flex:1; min-height:0;">
+        <div style="height:100%; background:var(--c-white); border-radius:10px; padding:12px; border:1px solid var(--c-border-light); overflow:hidden;">
+          <img src="output/evaluation/all_models_bar_comparison.png" alt="Bar Comparison" class="full-img">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 13 — CONCLUSIONI
+═══════════════════════════════════════════════════ -->
+<section class="dark" data-label="13 Conclusioni">
+  
+  <div class="inn">
+    <div class="lbl">Conclusioni</div>
+    <h2 class="ttl">Sintesi dei risultati</h2>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:28px;">
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:28px; flex:1;">
+
+        <div class="conc">
+          <div class="conc-num">01</div>
+          <div>
+            <div class="conc-title">Il flattening limita il ML classico</div>
+            <div class="conc-text">SVM a 64.2% dimostra che i pixel grezzi senza struttura spaziale sono insufficienti. Ogni pixel è trattato come feature indipendente, ignorando le relazioni locali.</div>
+          </div>
+        </div>
+
+        <div class="conc">
+          <div class="conc-num" style="color:var(--accent-2);">02</div>
+          <div>
+            <div class="conc-title">Random Forest coglie segnali parziali</div>
+            <div class="conc-text">80.2% con pixel flat è sorprendente. Gli alberi riescono ad isolare combinazioni di pixel, ma restano lontani dal limite superiore raggiungibile.</div>
+          </div>
+        </div>
+
+        <div class="conc">
+          <div class="conc-num" style="color:var(--accent-3);">03</div>
+          <div>
+            <div class="conc-title">ResNet-18 domina con 95.78%</div>
+            <div class="conc-text">I filtri convoluzionali apprendono texture, bordi e pattern periodici — esattamente le tracce lasciate dai generatori AI. AUC 0.9962 con gap val/test di soli 0.03%.</div>
+          </div>
+        </div>
+
+        <div class="conc">
+          <div class="conc-num">04</div>
+          <div>
+            <div class="conc-title">Transfer learning efficace e rapido</div>
+            <div class="conc-text">8 epoche su GPU consumer (RTX 4060 Ti) in ~12 min. Sblocco di layer3+layer4 in Fase 2 fondamentale per l'adattamento al dominio di detection AI.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="padding:20px 30px; background:rgba(255,255,255,0.05); border-radius:10px; border-left:4px solid var(--accent-2);">
+        <p style="font-size:var(--type-body); line-height:1.5;">
+          <strong style="color:var(--accent-2);">FAKE recall 99.00%</strong> — il modello è estremamente preciso nel rilevare immagini AI,
+          minimizzando i falsi negativi a soli <strong>100 su 10.000</strong> campioni FAKE.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+</deck-stage>
+
+
+<!-- ═══════════════════════════════════════════════════
+     TWEAKS PANEL
+═══════════════════════════════════════════════════ -->
+<div id="tweaks-panel" style="display:none; position:fixed; bottom:28px; right:28px; z-index:10000; width:288px; background:#111827; border-radius:16px; padding:26px; color:#edf0f5; font-family:'Quattrocento Sans',sans-serif; box-shadow:0 20px 60px rgba(0,0,0,0.65); border:1px solid #1e2530;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:22px;">
+    <div style="font-weight:700; font-size:15px; letter-spacing:0.1em; text-transform:uppercase;">Tweaks</div>
+    <button id="tweaks-close" style="background:none; border:none; color:#7d8698; cursor:pointer; font-size:20px; line-height:1; padding:0;">✕</button>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:22px;">
+
+    <div>
+      <div style="font-size:12px; color:#7d8698; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;">Colore accento</div>
+      <div style="display:flex; gap:10px;" id="color-btns">
+        <button class="cbtn" data-hue="245" style="width:38px;height:38px;border-radius:50%;background:oklch(62% 0.20 245);border:2px solid #fff;cursor:pointer;" title="Blu"></button>
+        <button class="cbtn" data-hue="170" style="width:38px;height:38px;border-radius:50%;background:oklch(62% 0.20 170);border:none;cursor:pointer;" title="Teal"></button>
+        <button class="cbtn" data-hue="290" style="width:38px;height:38px;border-radius:50%;background:oklch(62% 0.20 290);border:none;cursor:pointer;" title="Viola"></button>
+        <button class="cbtn" data-hue="15"  style="width:38px;height:38px;border-radius:50%;background:oklch(62% 0.20 15);border:none;cursor:pointer;" title="Rosso"></button>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:12px; color:#7d8698; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px;">Sfondo slide chiare</div>
+      <div style="display:flex; gap:10px;" id="bg-btns">
+        <button class="bgbtn" data-bg="#f5f7fa" style="width:38px;height:38px;border-radius:8px;background:#f5f7fa;border:2px solid #fff;cursor:pointer;" title="Cool white"></button>
+        <button class="bgbtn" data-bg="#faf8f5" style="width:38px;height:38px;border-radius:8px;background:#faf8f5;border:none;cursor:pointer;" title="Warm white"></button>
+        <button class="bgbtn" data-bg="#ffffff" style="width:38px;height:38px;border-radius:8px;background:#fff;border:1px solid #333;cursor:pointer;" title="Pure white"></button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accentHue": 245,
+  "lightBg": "#faf8f5"
+}/*EDITMODE-END*/;
+
+let t = { ...TWEAK_DEFAULTS };
+
+function applyTweaks(vals) {
+  const r = document.documentElement;
+  r.style.setProperty('--accent',    `oklch(62% 0.20 ${vals.accentHue})`);
+  r.style.setProperty('--accent-bg', `color-mix(in oklch, oklch(62% 0.20 ${vals.accentHue}) 12%, transparent)`);
+  document.querySelectorAll('section.light').forEach(s => s.style.background = vals.lightBg);
+  document.querySelectorAll('.cbtn').forEach(b => {
+    b.style.border = parseInt(b.dataset.hue) === vals.accentHue ? '2px solid #fff' : 'none';
+  });
+  document.querySelectorAll('.bgbtn').forEach(b => {
+    b.style.border = b.dataset.bg === vals.lightBg ? '2px solid #fff' : (b.dataset.bg === '#ffffff' ? '1px solid #333' : 'none');
+  });
+}
+
+applyTweaks(t);
+
+document.querySelectorAll('.cbtn').forEach(b => {
+  b.addEventListener('click', () => {
+    t.accentHue = parseInt(b.dataset.hue);
+    applyTweaks(t);
+    window.parent.postMessage({type:'__edit_mode_set_keys', edits:{accentHue: t.accentHue}}, '*');
+  });
+});
+document.querySelectorAll('.bgbtn').forEach(b => {
+  b.addEventListener('click', () => {
+    t.lightBg = b.dataset.bg;
+    applyTweaks(t);
+    window.parent.postMessage({type:'__edit_mode_set_keys', edits:{lightBg: t.lightBg}}, '*');
+  });
+});
+
+const panel = document.getElementById('tweaks-panel');
+document.getElementById('tweaks-close').addEventListener('click', () => {
+  panel.style.display = 'none';
+  window.parent.postMessage({type:'__edit_mode_dismissed'}, '*');
+});
+
+window.addEventListener('message', e => {
+  if (e.data?.type === '__activate_edit_mode')   panel.style.display = 'block';
+  if (e.data?.type === '__deactivate_edit_mode')  panel.style.display = 'none';
+});
+
+window.parent.postMessage({type:'__edit_mode_available'}, '*');
+</script>
+<script>
+(async () => {
+  try { await customElements.whenDefined('deck-stage'); } catch (e) {}
+  const ds = document.querySelector('deck-stage');
+  if (ds) {
+    // Weigh only slide children — same filter as deck-stage.length. Skipping
+    // slotted script/style/template keeps inline Babel/CSS from registering
+    // as stable "content" before the framework has mounted anything.
+    const weigh = () => {
+      let text = 0, media = 0;
+      for (const c of ds.children) {
+        const t = c.tagName;
+        if (t === 'SCRIPT' || t === 'STYLE' || t === 'TEMPLATE') continue;
+        text += (c.textContent || '').trim().length;
+        media += c.querySelectorAll('img,svg,canvas,video').length;
+      }
+      return text + media * 100;
+    };
+    const deadline = Date.now() + 15000;
+    let last = -1, stable = 0;
+    while (Date.now() < deadline) {
+      const n = weigh();
+      if (n > 0 && n === last) { if (++stable >= 2) break; } else { stable = 0; }
+      last = n;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  try { await document.fonts.ready; } catch (e) {}
+  setTimeout(() => { try { window.print(); } catch (e) {} }, 200);
+})();
+</script>
+</body>
+</html>
