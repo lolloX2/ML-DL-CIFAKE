@@ -1,6 +1,6 @@
 # CIFAKE — Real vs. AI-Generated Face Classification
 
-Binary image classification study on the [CIFAKE](https://www.kaggle.com/datasets/birdy654/cifake-real-and-ai-generated-synthetic-images) dataset (120k 32×32 images): distinguishing real photographs from AI-generated (synthetic) faces. Compares classical ML baselines (SVM, Random Forest) against a fine-tuned ResNet-18.
+Binary image classification study on the [CIFAKE](https://www.kaggle.com/datasets/birdy654/cifake-real-and-ai-generated-synthetic-images) dataset (120k 32×32 images): distinguishing real photographs from AI-generated (synthetic) images. Compares classical ML baselines (SVM, Random Forest) against a fine-tuned ResNet-18.
 
 ## Results
 
